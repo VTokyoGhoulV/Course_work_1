@@ -1,0 +1,29 @@
+[project]
+name = "Project1"
+version = "0.1.0"
+description = "Учебный проект"
+authors = [
+    {name = "-TokyoGhoul-",email = "0hellnomad0@gmail.com"}
+]
+requires-python = "^3.14"
+dependencies = [
+    "pandas (>=3.0.3,<4.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+lint = [
+    "flake8 (>=7.3.0,<8.0.0)",
+    "isort (>=8.0.1,<9.0.0)",
+    "mypy (>=2.1.0,<3.0.0)",
+    "black (>=26.5.1,<27.0.0)"
+]
+dev = [
+    "pytest-cov (>=7.1.0,<8.0.0)",
+    "pytest (>=9.0.3,<10.0.0)"
+]
