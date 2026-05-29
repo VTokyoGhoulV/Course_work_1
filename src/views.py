@@ -1,39 +1,38 @@
 import json
 import os
-from collections import Counter
 from datetime import datetime
+from typing import Iterator
 
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from src.utils import xlsx_to_python
+from src.utils import xlsx_to_python, find_project_root
 
-transactions = xlsx_to_python("../data/operations.xlsx")
+transactions = xlsx_to_python(f"{find_project_root()}/data/operations.xlsx")
+load_dotenv()
 
-with open("../user_settings.json", "r", encoding="utf-8") as file:
+with open(f"{find_project_root()}/user_settings.json", "r", encoding="utf-8") as file:
     user_settings = json.load(file)
 
-user_stocks = user_settings["user_stocks"]
 
-
-def hello(time: datetime) -> str:
+def hello(date: datetime) -> str:
     """Возвращает приветствие в зависимости от текущего времени"""
 
-    if 0 <= time.hour < 6:
+    if 0 <= date.hour < 6:
         return "Доброй ночи!"
 
-    elif 6 <= time.hour < 12:
+    elif 6 <= date.hour < 12:
         return "Доброе утро!"
 
-    elif 12 <= time.hour < 18:
+    elif 12 <= date.hour < 18:
         return "Добрый день!"
 
     else:
         return "Добрый вечер!"
 
 
-def get_cards_info():
+def get_cards_info() -> Iterator:
     """Возвращает данные по каждой карте"""
 
     unique_cards = {
@@ -57,7 +56,7 @@ def get_cards_info():
         }
 
 
-def get_top_transactions():
+def get_top_transactions() -> Iterator:
     """Возвращает топ 5 транзакций"""
 
     for transaction in sorted(
@@ -68,18 +67,17 @@ def get_top_transactions():
 
         yield {
             "date": transaction.get("Дата"),
-            "amount": round(transaction.get("Сумма операции"), 2),
+            "amount": abs(round(transaction.get("Сумма операции"), 2)),
             "category": transaction.get("Категория"),
             "description": transaction.get("Описание"),
         }
 
 
-def get_currency_rates(currency: list):
+def get_currency_rates() -> Iterator:
     """Возвращает актуальный курс валют по настройкам пользователя"""
 
-    load_dotenv()
-    api_key = os.getenv("API_KEY")
-    url = f"https://api.apilayer.com/exchangerates_data/latest?symbols={",".join(currency)}&base=RUB"
+    api_key = os.getenv("CURRENCY_API")
+    url = f"https://api.apilayer.com/exchangerates_data/latest?symbols={",".join(user_settings["user_currencies"])}&base=RUB"
     headers = {"apikey": api_key}
 
     request = requests.get(url, headers=headers)  # type: ignore
@@ -88,20 +86,29 @@ def get_currency_rates(currency: list):
         yield {"currency": currency, "rate": round(1 / request.json()["rates"][currency], 2)}
 
 
-def get_stocks_info():
-    """Возвращает актуальную цену акций по настройкам пользователя"""
-    pass
+def get_stocks_info() -> Iterator:
+    """Возвращает актуальную цену акций в USD по настройкам пользователя"""
+
+    api_key = os.getenv("STOCK_API")
+
+    for stock in user_settings["user_stocks"]:
+
+        url = f"https://api.twelvedata.com/eod?symbol={stock}&apikey={api_key}"
+        response = requests.get(url)
+
+        yield {"stock": stock, "price": round(float(response.json()["close"]), 2)}
 
 
-def python_to_json():
+def get_user_bank_info_json(date: datetime) -> None:
     """Переводит Python формат данных в JSON"""
 
     json_format = {
-        "greetings": hello(datetime.now()),
+        "greetings": hello(date),
         "cards": list(get_cards_info()),
         "top_transactions": list(get_top_transactions()),
-        "currency_rates": list(get_currency_rates(user_settings["user_currencies"])),
+        "currency_rates": list(get_currency_rates()),
+        "stock_prices": list(get_stocks_info()),
     }
 
-    with open("../test.json", "w", encoding="utf-8") as json_file:
+    with open(f"{find_project_root()}/test.json", "w", encoding="utf-8") as json_file:
         json.dump(json_format, json_file, ensure_ascii=False, indent=2)
