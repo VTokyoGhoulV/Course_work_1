@@ -7,13 +7,9 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from src.utils import find_project_root, get_date_range, xlsx_to_python
+from src.utils import find_project_root, get_date_range, transactions, user_settings
 
-transactions = xlsx_to_python(f"{find_project_root()}/data/operations.xlsx")
 load_dotenv()
-
-with open(f"{find_project_root()}/data/user_settings.json", "r", encoding="utf-8") as file:
-    user_settings = json.load(file)
 
 
 # Набор функций для основной страницы

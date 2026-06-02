@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -38,3 +39,9 @@ def get_date_range(date_str: str, range_type="M"):
         raise ValueError("Неверный тип диапазона")
 
     return start_date, end_date
+
+
+transactions = xlsx_to_python(f"{find_project_root()}/data/operations.xlsx")
+
+with open(f"{find_project_root()}/data/user_settings.json", "r", encoding="utf-8") as file:
+    user_settings = json.load(file)
