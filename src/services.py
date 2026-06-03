@@ -1,8 +1,9 @@
-from src.utils import transactions, find_project_root
 import json
 
+from src.utils import find_project_root, transactions
 
-def get_the_best_cashback_categories(data: list, year: int, month: int):
+
+def get_the_best_cashback_categories(data: list, year: int, month: int) -> None:
     """Возвращает список возможных кешбэков по категориям"""
 
     filtered_transactions = [

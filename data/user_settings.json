@@ -1,4 +1,4 @@
 {
-  "user_currencies": ["USD", "EUR", "BYN", "RUB", "BRL"],
+  "user_currencies": ["BYN", "BRL"],
   "user_stocks": ["AAPL", "AMZN"]
 }
