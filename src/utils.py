@@ -1,11 +1,11 @@
 import json
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 
 
-def _normalize_excel_date(value: object, date_format: str) -> object:
+def normalize_excel_date(value: object, date_format: str) -> object:
     """Приводит настоящие Excel-даты к строковому формату исходной выгрузки."""
     if pd.isna(value) or isinstance(value, str):
         return value
@@ -24,12 +24,12 @@ def xlsx_to_python(file_path: str) -> list:
     }
     for column, date_format in date_columns.items():
         if column in data.columns:
-            data[column] = data[column].map(lambda value: _normalize_excel_date(value, date_format))
+            data[column] = data[column].map(lambda value: normalize_excel_date(value, date_format))
 
     return data.to_dict("records")
 
 
-def find_project_root(marker_files=("pyproject.toml", ".git", "requirements.txt")) -> Path:
+def find_project_root(marker_files: str | tuple = ("pyproject.toml", ".git", "requirements.txt")) -> Path:
     """
     Ищет корневую директорию проекта, поднимаясь по дереву папок,
     пока не найдет один из маркерных файлов/папок.
@@ -42,7 +42,7 @@ def find_project_root(marker_files=("pyproject.toml", ".git", "requirements.txt"
     raise RuntimeError("Не удалось найти корень проекта. Убедитесь, что один из маркерных файлов присутствует.")
 
 
-def get_date_range(date_str: str, range_type="M"):
+def get_date_range(date_str: str, range_type: str = "M") -> tuple[datetime, datetime]:
     end_date = datetime.strptime(date_str, "%d.%m.%Y")
 
     if range_type == "M":
