@@ -6,17 +6,24 @@ from typing import Iterator
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+import logging
 
 from src.utils import find_project_root, get_date_range, transactions, user_settings
 
 load_dotenv()
 
+get_currency_rates_logger = logging.getLogger("get_currency_rates")
+
+file_handler = logging.FileHandler(f"{find_project_root()}/logs/get_currency_rates.log", encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+get_currency_rates_logger.addHandler(file_handler)
 
 # Набор функций для основной страницы
 def hello() -> str:
     """Возвращает приветствие в зависимости от текущего времени"""
 
-    if 0 <= datetime.now().hour < 6:
+    if 23 <= datetime.now().hour or datetime.now().hour < 6:
         return "Доброй ночи!"
 
     elif 6 <= datetime.now().hour < 12:
@@ -80,7 +87,7 @@ def get_top_transactions(date: datetime) -> Iterator:
         elif first_day <= datetime.strptime(transaction.get("Дата операции"), "%d.%m.%Y %H:%M:%S") <= date:
             filtered_transactions.append(transaction)
 
-    for trans in sorted(filtered_transactions, key=lambda x: x["Сумма операции"], reverse=True)[:5]:
+    for trans in sorted(filtered_transactions, key=lambda x: x["Сумма операции"], reverse=False)[:5]:
         yield {
             "date": trans["Дата операции"],
             "amount": abs(trans["Сумма операции"]),
@@ -95,16 +102,25 @@ def get_currency_rates() -> Iterator:
     """Возвращает актуальный курс валют по настройкам пользователя"""
 
     api_key = os.getenv("CURRENCY_API")
-    url = (
-        f"https://api.apilayer.com/exchangerates_data/latest?symbols="
-        f"{",".join(user_settings["user_currencies"])}&base=RUB"
-    )
-    headers = {"apikey": api_key}
+    if not api_key or not user_settings.get("user_currencies"):
+        get_currency_rates_logger.error("Нет API ключа для валют или нет настроек пользователя")
+        return iter([])
 
-    request = requests.get(url, headers=headers)  # type: ignore
+    url = f"https://api.apilayer.com/exchangerates_data/latest?symbols={','.join(user_settings['user_currencies'])}&base=RUB"
 
-    for currency in user_settings["user_currencies"]:
-        yield {"currency": currency, "rate": round(1 / request.json()["rates"][currency], 2)}
+    try:
+        response = requests.get(url, headers={"apikey": api_key}, timeout=10) # type: ignore
+        response.raise_for_status()
+        rates = response.json().get("rates", {})
+
+        for currency in user_settings["user_currencies"]:
+            if currency in rates and rates[currency] > 0:
+                yield {"currency": currency, "rate": round(1 / rates[currency], 2)}
+
+    except (requests.RequestException, KeyError, ZeroDivisionError, ValueError) as e:
+        get_currency_rates_logger.error(e)
+        return iter([])
+
 
 
 def get_stocks_info() -> Iterator:
@@ -157,6 +173,8 @@ def get_expenses_by_category(start_date: datetime, end_date: datetime) -> list:
                 transaction.get("Категория") == category
                 and transaction.get("Сумма операции") < 0
                 and start_date <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= end_date
+                and transaction.get("Описание") != "Пополнение Инвесткопилки"
+                and transaction.get("Статус") != "FAILED"
             ):
                 spend_counter += transaction.get("Сумма операции")
 
@@ -183,8 +201,19 @@ def transfers_and_cash(start_date: datetime, end_date: datetime) -> list:
         if start_date <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= end_date
     ]
 
-    transfers = [transaction for transaction in filtered_transactions if transaction.get("Категория") == "Переводы"]
-    cash = [transaction for transaction in filtered_transactions if transaction.get("Категория") == "Наличные"]
+    transfers = [
+        transaction
+        for transaction in filtered_transactions
+        if transaction.get("Категория") == "Переводы"
+        and transaction.get("Сумма операции") < 0
+        and "Инвесткопилк" not in transaction.get("Описание")
+    ]
+
+    cash = [
+        transaction
+        for transaction in filtered_transactions
+        if transaction.get("Категория") == "Наличные" and transaction.get("Сумма операции") < 0
+    ]
 
     result = [
         {
@@ -214,13 +243,15 @@ def get_income_by_category(start_date: datetime, end_date: datetime) -> list:
     for category in unique_categories:
 
         income_counter = 0
-
+        qwe = list()
         for transaction in transactions:
 
             if (
                 transaction.get("Категория") == category
                 and transaction.get("Сумма операции") > 0
                 and start_date <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= end_date
+                and transaction.get("Описание") != "Вывод с Инвесткопилки"
+                and transaction.get("Описание") != "Вывод с брокерского счета"
             ):
                 income_counter += transaction.get("Сумма операции")
 
