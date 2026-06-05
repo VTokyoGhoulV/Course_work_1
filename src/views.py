@@ -83,6 +83,7 @@ def get_top_transactions(date: datetime) -> Iterator:
     ]
 
     for trans in sorted(filtered_transactions, key=lambda x: abs(x["Сумма операции"]), reverse=True)[:5]:
+
         yield {
             "date": trans["Дата операции"],
             "amount": abs(trans["Сумма операции"]),
@@ -93,50 +94,139 @@ def get_top_transactions(date: datetime) -> Iterator:
         }
 
 
-def get_currency_rates() -> Iterator:
+def get_currency_rates() -> list:
     """Возвращает актуальный курс валют по настройкам пользователя"""
+    cache_path = f"{find_project_root()}/data/cache/currency_rates.json"
+    today = datetime.now().strftime("%d.%m.%Y")
+    user_currencies = user_settings.get("user_currencies", [])  # глобальная переменная
 
+    cached_data = None
+    # Чтение кэша, если файл существует
+    if os.path.exists(cache_path):
+        with open(cache_path, "r", encoding="utf-8") as file:
+            cached_data = json.load(file)
+
+    # Проверка свежести и наличия всех нужных валют
+    if (
+        cached_data is not None
+        and cached_data.get("date") == today
+        and all(currency in [c["currency"] for c in cached_data["currency_rates"]] for currency in user_currencies)
+    ):
+        get_currency_rates_logger.info("Берем из кэша")
+        return [c for c in cached_data["currency_rates"] if c["currency"] in user_currencies]
+
+    # Иначе загружаем из API
     api_key = os.getenv("CURRENCY_API")
-
-    if not api_key or not user_settings.get("user_currencies"):
-
+    if not api_key or not user_currencies:
         get_currency_rates_logger.error("Нет API ключа для валют или нет настроек пользователя")
+        return []
 
-        return
-
-    url = (f"https://api.apilayer.com/exchangerates_data/latest?symbols="
-           f"{','.join(user_settings['user_currencies'])}&base=RUB")
-
+    url = f"https://api.apilayer.com/exchangerates_data/latest?symbols={','.join(user_currencies)}&base=RUB"
     try:
-
-        response = requests.get(url, headers={"apikey": api_key}, timeout=10)  # type: ignore
+        response = requests.get(url, headers={"apikey": api_key}, timeout=10)
         response.raise_for_status()
         rates = response.json().get("rates", {})
 
-        for currency in user_settings["user_currencies"]:
+        # Новые курсы из API (после конвертации 1/rate)
+        new_rates = {cur: round(1 / rates[cur], 2) for cur in user_currencies if cur in rates and rates[cur] > 0}
 
-            if currency in rates and rates[currency] > 0:
+        # Загружаем старые курсы за сегодня (если есть)
+        old_rates = {}
+        if cached_data is not None and cached_data.get("date") == today:
+            old_rates = {item["currency"]: item["rate"] for item in cached_data.get("currency_rates", [])}
 
-                yield {"currency": currency, "rate": round(1 / rates[currency], 2)}
+        # Объединяем: новые перезаписывают старые, старые валюты, которых нет в запросе, остаются
+        merged_rates = {**old_rates, **new_rates}
+
+        # Формируем данные для сохранения
+        actual_rates = {
+            "currency_rates": [{"currency": cur, "rate": rate} for cur, rate in merged_rates.items()],
+            "date": today,
+        }
+
+        with open(cache_path, "w", encoding="utf-8") as file:
+            json.dump(actual_rates, file, ensure_ascii=False, indent=4)
+
+        get_currency_rates_logger.info("Кэш обновлён (добавлены новые валюты, старые сохранены)")
+        # Возвращаем только запрошенные пользователем валюты (с актуальными курсами из API)
+        return [{"currency": cur, "rate": new_rates[cur]} for cur in user_currencies if cur in new_rates]
 
     except (requests.RequestException, KeyError, ZeroDivisionError, ValueError) as e:
-
         get_currency_rates_logger.error(e)
+        return []
 
-        return
 
-
-def get_stocks_info() -> Iterator:
+def get_stocks_info() -> list:
     """Возвращает актуальную цену акций в USD по настройкам пользователя"""
 
+    cache_path = f"{find_project_root()}/data/cache/stocks_rates.json"
+    today = datetime.now().strftime("%d.%m.%Y")
+    user_stocks = user_settings.get("user_stocks", [])  # глобальная переменная
+
+    # Чтение кэша, если файл существует
+    cached_data = None
+    if os.path.exists(cache_path):
+        with open(cache_path, "r", encoding="utf-8") as file:
+            cached_data = json.load(file)
+
+    # Проверка свежести и наличия всех нужных акций
+    if (
+        cached_data
+        and cached_data.get("date") == today
+        and all(stock in [item["stock"] for item in cached_data.get("stocks_rates", [])] for stock in user_stocks)
+    ):
+        get_currency_rates_logger.info("Берем из кэша")
+        return [item for item in cached_data["stocks_rates"] if item["stock"] in user_stocks]
+
+    # Иначе загружаем из API
     api_key = os.getenv("STOCK_API")
+    if not api_key or not user_stocks:
+        get_currency_rates_logger.error("Нет API ключа для акций или нет настроек пользователя")
+        return []
 
-    for stock in user_settings["user_stocks"]:
+    # Загружаем старые данные за сегодня (если есть)
+    old_stocks = {}
+    if cached_data and cached_data.get("date") == today:
+        old_stocks = {
+            item["stock"]: {"price": item["price"], "currency": item["currency"]}
+            for item in cached_data.get("stocks_rates", [])
+        }
 
+    # Получаем новые данные для запрошенных акций
+    new_stocks = {}
+    for stock in user_stocks:
         url = f"https://api.twelvedata.com/eod?symbol={stock}&apikey={api_key}"
-        response = requests.get(url)
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            price = round(float(data["close"]), 2)
+            new_stocks[stock] = {"stock": stock, "price": price, "currency": "USD"}
+        except (requests.RequestException, KeyError, ValueError, TypeError) as e:
+            get_currency_rates_logger.error(f"Ошибка при загрузке {stock}: {e}")
+            continue
 
-        yield {"stock": stock, "price": round(float(response.json()["close"]), 2), "currency": "USD"}
+    # Объединяем старые и новые: новые перезаписывают старые по тикеру
+    merged = {**old_stocks}  # копируем старые
+    for stock, data in new_stocks.items():
+        merged[stock] = data  # новые заменяют или добавляются
+
+    # Преобразуем обратно в список
+    merged_stocks_rates = list(merged.values())
+
+    # Формируем данные для кэша
+    actual_rates = {
+        "stocks_rates": merged_stocks_rates,
+        "date": today,
+    }
+
+    # Сохраняем в кэш
+    with open(cache_path, "w", encoding="utf-8") as file:
+        json.dump(actual_rates, file, ensure_ascii=False, indent=4)
+
+    get_currency_rates_logger.info("Кэш обновлён (добавлены новые акции, старые сохранены)")
+    # Возвращаем только запрошенные пользователем акции (с новыми ценами)
+    return [new_stocks[stock] for stock in user_stocks if stock in new_stocks]
 
 
 def page_main_json(date: datetime) -> None:
