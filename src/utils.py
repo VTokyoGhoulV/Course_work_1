@@ -62,7 +62,7 @@ def get_date_range(date_str: str, range_type: str = "M") -> tuple[datetime, date
 
 
 transactions = xlsx_to_python(f"{find_project_root()}/data/operations.xlsx")
-df = pd.read_excel(f"{find_project_root()}/data/My_operations.xlsx")
+df = pd.read_excel(f"{find_project_root()}/data/operations.xlsx")
 
 with open(f"{find_project_root()}/data/user_settings.json", "r", encoding="utf-8") as file:
     user_settings = json.load(file)

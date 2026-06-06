@@ -238,32 +238,6 @@ poetry run flake8 src tests
 poetry run mypy src
 ```
 
-## Важное замечание
-
-В текущем коде файл `src/utils.py` загружает два Excel-файла:
-
-```python
-transactions = xlsx_to_python(f"{find_project_root()}/data/operations.xlsx")
-df = pd.read_excel(f"{find_project_root()}/data/My_operations.xlsx")
-```
-
-В архиве присутствует `data/operations.xlsx`, но файл `data/My_operations.xlsx` отсутствует. Из-за этого импорт модулей и запуск тестов могут завершаться ошибкой `FileNotFoundError`.
-
-Чтобы исправить проблему, можно:
-
-1. добавить файл `data/My_operations.xlsx`; или
-2. заменить строку в `src/utils.py`:
-
-```python
-df = pd.read_excel(f"{find_project_root()}/data/My_operations.xlsx")
-```
-
-на:
-
-```python
-df = pd.read_excel(f"{find_project_root()}/data/operations.xlsx")
-```
-
 ## Переменные окружения
 
 | Переменная | Назначение |
