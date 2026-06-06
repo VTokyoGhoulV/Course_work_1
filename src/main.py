@@ -22,7 +22,7 @@ def services(data: list, year: int, month: int, limit: int, search_string: str) 
     """Принимает данные транзакций, год и месяц для обработки и генерирует JSON файлы для сервисов"""
 
     get_the_best_cashback_categories(data, year, month)
-    investment_bank("2026.05", transactions, limit)
+    investment_bank("2021.05", transactions, limit)
     simple_finder(data, search_string)
 
 
@@ -35,6 +35,6 @@ def reports(dataframe: pd.DataFrame, category: str) -> None:
 
 
 if __name__ == "__main__":
-    pages(date="31.05.2026", range_type="M")
-    services(transactions, year=2026, month=6, limit=100, search_string="товар")
+    pages(date="31.05.2021", range_type="M")
+    services(transactions, year=2021, month=5, limit=100, search_string="товар")
     reports(df, "Переводы")

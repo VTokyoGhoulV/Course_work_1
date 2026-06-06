@@ -225,3 +225,10 @@ __marimo__/
 /data/My_operations.xlsx
 /data/cashback_categories.json
 /data/investment_bank.json
+/data/reports/report_spending_by_category_20260606.json
+/data/reports/report_spending_by_weekday_20260606.json
+/data/reports/report_spending_by_workday_20260606.json
+/data/cache/stocks_rates.json
+/data/cache/currency_rates.json
+/data/simple_finder.json
+

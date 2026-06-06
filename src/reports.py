@@ -58,7 +58,7 @@ def spending_by_weekday(transactions: pd.DataFrame, date: Optional[str] = None) 
     transactions["Дата операции"] = pd.to_datetime(transactions["Дата операции"])
 
     mask_date = (transactions["Дата операции"] >= start_date) & (transactions["Дата операции"] <= end_date)
-    mask_expense = df["Сумма операции"] < 0
+    mask_expense = transactions["Сумма операции"] < 0
 
     df_filtered = transactions[mask_date & mask_expense].copy()
 
