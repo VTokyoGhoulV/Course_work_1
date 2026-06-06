@@ -1,0 +1,13 @@
+{
+    "currency_rates": [
+        {
+            "currency": "BYN",
+            "rate": 26.26
+        },
+        {
+            "currency": "BRL",
+            "rate": 14.24
+        }
+    ],
+    "date": "06.06.2026"
+}

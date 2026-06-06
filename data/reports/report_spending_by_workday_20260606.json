@@ -1,0 +1,10 @@
+[
+  {
+    "day_type":"workday",
+    "avg_spending":1470.81
+  },
+  {
+    "day_type":"weekend",
+    "avg_spending":2120.57
+  }
+]

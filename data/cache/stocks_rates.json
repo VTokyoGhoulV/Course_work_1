@@ -1,0 +1,15 @@
+{
+    "stocks_rates": [
+        {
+            "stock": "AAPL",
+            "price": 307.34,
+            "currency": "USD"
+        },
+        {
+            "stock": "AMZN",
+            "price": 246.03,
+            "currency": "USD"
+        }
+    ],
+    "date": "06.06.2026"
+}
