@@ -3,7 +3,7 @@ import logging
 import re
 from datetime import datetime
 
-from src.utils import find_project_root, transactions
+from src.utils import find_project_root
 
 investment_bank_logger = logging.getLogger("investment_bank")
 
@@ -59,16 +59,16 @@ def investment_bank(date: str, transaction_data: list[dict], limit: int) -> None
             and (parsed_date := datetime.strptime(operation_date, "%d.%m.%Y %H:%M:%S"))
             and parsed_date.year == target_date.year
             and parsed_date.month == target_date.month
-            and transaction.get("Сумма операции") < 0
+            and transaction.get("Сумма операции") < 0  # type: ignore
             and transaction.get("Статус") != "FAILED"
         ]
 
         investment_counter = 0
         for transaction in filtered_transactions:
 
-            if transaction.get("Сумма операции") % limit > 0:
+            if transaction.get("Сумма операции") % limit > 0:  # type: ignore
 
-                investment_counter += transaction.get("Сумма операции") % limit
+                investment_counter += transaction.get("Сумма операции") % limit  # type: ignore
 
         with open(f"{find_project_root()}/data/investment_bank.json", "w", encoding="utf-8") as file:
             json.dump({"possible_investment": round(investment_counter, 2)}, file, ensure_ascii=False, indent=2)

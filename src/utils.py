@@ -7,7 +7,7 @@ import pandas as pd
 
 def normalize_excel_date(value: object, date_format: str) -> object:
     """Приводит настоящие Excel-даты к строковому формату исходной выгрузки."""
-    if pd.isna(value) or isinstance(value, str):
+    if pd.isna(value) or isinstance(value, str):  # type: ignore
         return value
     if isinstance(value, date):
         return value.strftime(date_format)
@@ -62,6 +62,7 @@ def get_date_range(date_str: str, range_type: str = "M") -> tuple[datetime, date
 
 
 transactions = xlsx_to_python(f"{find_project_root()}/data/My_operations.xlsx")
+df = pd.read_excel("../data/My_operations.xlsx")
 
 with open(f"{find_project_root()}/data/user_settings.json", "r", encoding="utf-8") as file:
     user_settings = json.load(file)
