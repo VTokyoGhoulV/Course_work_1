@@ -4,7 +4,6 @@ from typing import Optional
 import pandas as pd
 
 from src.decorators import report_to_file
-from src.utils import df
 
 
 @report_to_file()
@@ -37,9 +36,7 @@ def spending_by_category(
 
     total_spent = abs(filtered["Сумма операции"].sum())
 
-    return pd.DataFrame(
-        {"Категория": [category], "Сумма расходов": [total_spent]}
-    )
+    return pd.DataFrame({"Категория": [category], "Сумма расходов": [total_spent]})
 
 
 @report_to_file()  # type: ignore
@@ -76,7 +73,15 @@ def spending_by_weekday(transactions: pd.DataFrame, date: Optional[str] = None) 
     df_filtered["День недели"] = eng_days.map(ru_days)
 
     avg_spending = df_filtered.groupby("День недели")["Сумма операции"].mean().abs().round(2)
-    weekday_order = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+    weekday_order = [
+        "Понедельник",
+        "Вторник",
+        "Среда",
+        "Четверг",
+        "Пятница",
+        "Суббота",
+        "Воскресенье",
+    ]
     avg_spending = avg_spending.reindex(weekday_order).dropna()
 
     return avg_spending.reset_index(name="Средние траты")

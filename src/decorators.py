@@ -1,17 +1,9 @@
-import logging
 from datetime import datetime
 from functools import wraps
 
 import pandas as pd
 
-from src.utils import find_project_root
-
-report_to_file_logger = logging.getLogger("report_to_file")
-
-file_handler = logging.FileHandler(f"{find_project_root()}/logs/report_to_file.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-
-report_to_file_logger.addHandler(file_handler)
+from logger import logger
 
 
 def report_to_file(filename=None):  # type: ignore
@@ -29,9 +21,7 @@ def report_to_file(filename=None):  # type: ignore
 
             if not isinstance(result, pd.DataFrame):
 
-                report_to_file_logger.warning(
-                    "Предупреждение: результат не является DataFrame, сохранение может быть некорректным"
-                )
+                logger.warning("Предупреждение: результат не является DataFrame, сохранение может быть некорректным")
 
                 return result
 
@@ -48,7 +38,7 @@ def report_to_file(filename=None):  # type: ignore
 
             # Теперь to_json не будет преобразовывать даты в timestamps
             result.to_json(out_filename, orient="records", force_ascii=False, indent=2)
-            report_to_file_logger.info(f"Отчёт сохранён в файл: {out_filename}")
+            logger.info(f"Отчёт сохранён в файл: {out_filename}")
 
             return result
 

@@ -1,125 +1,112 @@
 import json
-import logging
-import re
 from datetime import datetime
+from typing import Optional
 
-from src.utils import find_project_root
+import pandas as pd
 
-investment_bank_logger = logging.getLogger("investment_bank")
-
-file_handler = logging.FileHandler(f"{find_project_root()}/logs/investment_bank.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-
-investment_bank_logger.addHandler(file_handler)
+from utils import get_date_range, find_project_root
 
 
-def get_the_best_cashback_categories(data: list, year: int, month_: int) -> None:
-    """Возвращает список возможных кешбэков по категориям"""
+def get_the_best_cashback_categories(transactions: pd.DataFrame, date: Optional[datetime] = None) -> None:
 
-    filtered_transactions = [
-        transaction
-        for transaction in data
-        if transaction.get("Категория")
-        and f"{month_}.{year}" in transaction.get("Дата операции")
-        and transaction.get("Категория") not in ["Переводы", "Наличные", "Услуги банка"]
-        and transaction.get("Сумма операции") < 0
-        and transaction.get("Статус") != "FAILED"
-    ]
+    if date is None:
+        first_day, last_day = get_date_range(datetime.today())
+    else:
+        first_day, last_day = get_date_range(date)
 
-    unique_categories = set(transaction.get("Категория") for transaction in filtered_transactions)
+    operation_dates = pd.to_datetime(transactions["Дата операции"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
-    expenses = {
-        category: abs(
-            round(sum(t["Сумма операции"] for t in filtered_transactions if t.get("Категория") == category) / 100)
-        )
-        for category in unique_categories
-    }
+    period_mask = operation_dates.between(first_day, last_day) & transactions["Номер карты"].notna()
 
-    sorted_data = dict(sorted(expenses.items(), key=lambda item: item[1], reverse=True))
+    mask = (
+        period_mask
+        & ~transactions["Категория"].isin(["Переводы", "Наличные", "Услуги банка"])
+        & transactions["Сумма операции"].lt(0)
+        & transactions["Статус"].eq("OK")
+    )
+
+    categories_spend = (
+        transactions.loc[mask]
+        .groupby("Категория")["Сумма операции"]
+        .sum()
+        .abs()
+        .div(100)
+        .round()
+        .sort_values(ascending=False)
+    )
+
+    result = {category: cashback for category, cashback in categories_spend.items()}
 
     with open(f"{find_project_root()}/data/cashback_categories.json", "w", encoding="utf-8") as json_file:
-        json.dump(sorted_data, json_file, ensure_ascii=False, indent=2)
+        json.dump(result, json_file, ensure_ascii=False, indent=2)
 
 
-def investment_bank(date: str, transaction_data: list[dict], limit: int) -> None:
-    """
-    Дату в формате YYYY.MM, информацию по транзакциям и лимит округления(10, 50, 100).
-    Возвращает суммы возможных округлений за месяц
-    """
-    try:
-        if limit not in [10, 50, 100]:
-            raise ValueError("Некорректный лимит округления")
+def investment_bank(date: datetime, transactions: pd.DataFrame, limit: int) -> None:
 
-        target_date = datetime.strptime(date, "%Y.%m")
+    if limit not in [10, 50, 100]:
+        raise ValueError("Лимит должен быть 10, 50 или 100")
 
-        filtered_transactions = [
-            transaction
-            for transaction in transaction_data
-            if (operation_date := transaction.get("Дата операции"))
-            and (parsed_date := datetime.strptime(operation_date, "%d.%m.%Y %H:%M:%S"))
-            and parsed_date.year == target_date.year
-            and parsed_date.month == target_date.month
-            and transaction.get("Сумма операции") < 0  # type: ignore
-            and transaction.get("Статус") != "FAILED"
-        ]
+    first_day, last_day = get_date_range(date)
 
-        investment_counter = 0
-        for transaction in filtered_transactions:
+    operation_dates = pd.to_datetime(transactions["Дата операции"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
-            if transaction.get("Сумма операции") % limit > 0:  # type: ignore
+    period_mask = operation_dates.between(first_day, last_day) & transactions["Номер карты"].notna()
 
-                investment_counter += transaction.get("Сумма операции") % limit  # type: ignore
+    mask = period_mask & transactions["Сумма операции"].lt(0) & transactions["Статус"].eq("OK")
 
-        with open(f"{find_project_root()}/data/investment_bank.json", "w", encoding="utf-8") as file:
-            json.dump({"possible_investment": round(investment_counter, 2)}, file, ensure_ascii=False, indent=2)
+    investment_counter = transactions.loc[mask, "Сумма операции"].mod(limit).sum().round()
 
-    except ValueError as e:
-        investment_bank_logger.error(e)
+    result = {"possible_investment": round(investment_counter)}
+
+    with open(f"{find_project_root()}/data/investment_bank.json", "w", encoding="utf-8") as file:
+        json.dump(result, file, ensure_ascii=False, indent=2)
 
 
-# 3 вопрос
-def simple_finder(data: list, search_string: str) -> None:
-    """
-    Поиск по строке в данных (без учета регистра)
-    """
-    search_lower = search_string.lower()
-    filtered_transactions = [
-        transaction for transaction in data if search_lower in transaction.get("Описание", "").lower()
-    ]
+def simple_finder(transactions: pd.DataFrame, search_string: str) -> None:
+
+    mask = transactions["Описание"].str.contains(search_string, case=False, na=False, regex=False)
+
+    filtered = transactions.loc[mask].copy()
+
+    filtered = filtered.astype(object).where(filtered.notna(), None)
+
+    result = filtered.to_dict("records")
 
     with open(f"{find_project_root()}/data/simple_finder.json", "w", encoding="utf-8") as json_file:
-        json.dump(filtered_transactions, json_file, ensure_ascii=False, indent=2)
+        json.dump(result, json_file, ensure_ascii=False, indent=2, default=str)
 
 
-# 3 вопрос
-def mobile_phone_finder(data: list) -> None:
-    """Генерирует JSON файл с транзакциями в описании которых есть номер телефона"""
+def mobile_phone_finder(transactions: pd.DataFrame) -> None:
 
-    phone_pattern = re.compile(r"\+7[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}")
+    phone_pattern = r"\+7[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}"
 
-    filtered__transactions = [
-        transaction
-        for transaction in data
-        if phone_pattern.search(transaction.get("Описание", "")) and transaction.get("Статус") != "FAILED"
-    ]
+    mask = transactions["Описание"].str.contains(phone_pattern, case=False, na=False, regex=True)
+
+    filtered = transactions.loc[mask].copy()
+
+    filtered = filtered.astype(object).where(filtered.notna(), None)
+
+    result = filtered.to_dict("records")
 
     with open(f"{find_project_root()}/data/mobile_phone_finder.json", "w", encoding="utf-8") as json_file:
-        json.dump(filtered__transactions, json_file, ensure_ascii=False, indent=2)
+        json.dump(result, json_file, ensure_ascii=False, indent=2, default=str)
 
 
-# 3 вопрос
-def individual_transaction_finder(data: list) -> None:
-    """Генерирует JSON файл с переводами физ лицами"""
+def individual_transaction_finder(transactions: pd.DataFrame) -> None:
 
-    name_pattern = re.compile(r"\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.")
+    name_pattern = r"\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\."
 
-    filtered_transactions = [
-        transaction
-        for transaction in data
-        if transaction.get("Категория") == "Переводы"
-        and name_pattern.search(transaction.get("Описание", ""))
-        and transaction.get("Статус") != "FAILED"
-    ]
+    mask = transactions["Описание"].str.contains(name_pattern, case=False, na=False, regex=True)
 
-    with open(f"{find_project_root()}/data/individual_transaction_finder.json", "w", encoding="utf-8") as json_file:
-        json.dump(filtered_transactions, json_file, ensure_ascii=False, indent=2)
+    filtered = transactions.loc[mask].copy()
+
+    filtered = filtered.astype(object).where(filtered.notna(), None)
+
+    result = filtered.to_dict("records")
+
+    with open(
+        f"{find_project_root()}/data/individual_transaction_finder.json",
+        "w",
+        encoding="utf-8",
+    ) as json_file:
+        json.dump(result, json_file, ensure_ascii=False, indent=2, default=str)

@@ -1,27 +1,19 @@
 import json
-import logging
 import os
 from datetime import datetime
-from typing import Iterator
 
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-from src.utils import find_project_root, get_date_range, transactions, user_settings
+from logger import logger
+from utils import find_project_root, get_date_range, user_settings
 
 load_dotenv()
 
-get_currency_rates_logger = logging.getLogger("get_currency_rates")
-
-file_handler = logging.FileHandler(f"{find_project_root()}/logs/get_currency_rates.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-
-get_currency_rates_logger.addHandler(file_handler)
-
 
 # Набор функций для основной страницы
-def hello() -> str:
+def greetings() -> str:
     """Возвращает приветствие в зависимости от текущего времени"""
 
     if 23 <= datetime.now().hour or datetime.now().hour < 6:
@@ -37,61 +29,73 @@ def hello() -> str:
         return "Добрый вечер!"
 
 
-# Тут есть вопрос потому что не все транзакции имеют карту из-за этого недосчет (вопрос 2)
-def get_cards_info(date: datetime) -> Iterator:
+def get_cards_info(date: datetime, transactions: pd.DataFrame) -> list:
     """Возвращает данные по каждой карте в диапазоне дат с первого числа по указанное"""
 
-    first_day = datetime(date.year, date.month, 1)
-    date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    first_day, last_day = get_date_range(date)
 
-    cards = {
-        transaction["Номер карты"]
-        for transaction in transactions
-        if first_day <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= date
-        and pd.notna(transaction["Номер карты"])
-    }
+    operation_dates = pd.to_datetime(transactions["Дата операции"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
-    for card in cards:
-        spend_counter = sum(
-            transaction["Сумма операции"]
-            for transaction in transactions
-            if transaction["Номер карты"] == card
-            and transaction["Сумма операции"] < 0
-            and first_day <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= date
-            and transaction.get("Статус") != "FAILED"
-            and "Инвесткопилк" not in transaction.get("Описание")
-        )
+    period_mask = operation_dates.between(first_day, last_day) & transactions["Номер карты"].notna()
 
-        yield {
+    spending_mask = (
+        period_mask
+        & transactions["Сумма операции"].lt(0)
+        & transactions["Статус"].ne("FAILED")
+        & ~transactions["Описание"].str.contains("инвесткопилк", na=False, case=False)
+    )
+
+    cards = transactions.loc[period_mask, "Номер карты"].drop_duplicates()
+
+    card_spending = (
+        transactions.loc[spending_mask]
+        .groupby("Номер карты")["Сумма операции"]
+        .sum()
+        .abs()
+        .reindex(cards, fill_value=0)
+    )
+
+    result = [
+        {
             "last_digit": str(card)[-4:],
-            "total_spend": round(abs(spend_counter)),
+            "total_spend": round(spend_counter),
             "cashback": round(abs(spend_counter) / 100),
         }
-
-
-def get_top_transactions(date: datetime) -> Iterator:
-    """Возвращает топ 5 транзакций"""
-
-    first_day = datetime(date.year, date.month, 1)
-
-    filtered_transactions = [
-        transaction
-        for transaction in transactions
-        if transaction.get("Дата операции")
-        and first_day <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= date
-        and "Инвесткопилк" not in transaction.get("Описание", "")
+        for card, spend_counter in card_spending.items()
     ]
 
-    for trans in sorted(filtered_transactions, key=lambda x: abs(x["Сумма операции"]), reverse=True)[:5]:
+    return result
 
-        yield {
-            "date": trans["Дата операции"],
-            "amount": abs(trans["Сумма операции"]),
-            "type": "expense" if trans["Сумма операции"] < 0 else "income",
-            "currency": trans["Валюта операции"],
-            "category": trans["Категория"],
-            "description": trans["Описание"],
+
+def get_top_transactions(date: datetime, transactions: pd.DataFrame) -> list:
+    """Возвращает топ 5 транзакций"""
+
+    first_day, last_day = get_date_range(date)
+
+    mask = (
+        transactions["Дата операции"].between(first_day, last_day)
+        & transactions["Статус"].ne("FAILED")
+        & ~transactions["Описание"].str.contains("инвесткопилк", na=False, case=False)
+    )
+
+    transactions = (
+        transactions.loc[mask]
+        .sort_values(by="Сумма операции", key=lambda column: column.abs(), ascending=False)
+        .head(5)
+    )
+
+    result = [
+        {
+            "date": str(transaction["Дата операции"]),
+            "amount": abs(transaction["Сумма операции"]),
+            "type": "expense" if transaction["Сумма операции"] < 0 else "income",
+            "currency": transaction["Валюта операции"],
+            "category": transaction["Категория"],
+            "description": transaction["Описание"],
         }
+        for transaction in transactions.to_dict("records")
+    ]
+    return result
 
 
 def get_currency_rates() -> list:
@@ -112,13 +116,13 @@ def get_currency_rates() -> list:
         and cached_data.get("date") == today
         and all(currency in [c["currency"] for c in cached_data["currency_rates"]] for currency in user_currencies)
     ):
-        get_currency_rates_logger.info("Берем из кэша")
+        logger.info("Берем из кэша")
         return [c for c in cached_data["currency_rates"] if c["currency"] in user_currencies]
 
     # Иначе загружаем из API
     api_key = os.getenv("CURRENCY_API")
     if not api_key or not user_currencies:
-        get_currency_rates_logger.error("Нет API ключа для валют или нет настроек пользователя")
+        logger.error("Нет API ключа для валют или нет настроек пользователя")
         return []
 
     url = f"https://api.apilayer.com/exchangerates_data/latest?symbols={','.join(user_currencies)}&base=RUB"
@@ -147,12 +151,12 @@ def get_currency_rates() -> list:
         with open(cache_path, "w", encoding="utf-8") as file:
             json.dump(actual_rates, file, ensure_ascii=False, indent=4)
 
-        get_currency_rates_logger.info("Кэш обновлён (добавлены новые валюты, старые сохранены)")
+        logger.info("Кэш обновлён (добавлены новые валюты, старые сохранены)")
         # Возвращаем только запрошенные пользователем валюты (с актуальными курсами из API)
         return [{"currency": cur, "rate": new_rates[cur]} for cur in user_currencies if cur in new_rates]
 
     except (requests.RequestException, KeyError, ZeroDivisionError, ValueError) as e:
-        get_currency_rates_logger.error(e)
+        logger.error(e)
         return []
 
 
@@ -175,13 +179,13 @@ def get_stocks_info() -> list:
         and cached_data.get("date") == today
         and all(stock in [item["stock"] for item in cached_data.get("stocks_rates", [])] for stock in user_stocks)
     ):
-        get_currency_rates_logger.info("Берем из кэша")
+        logger.info("Берем из кэша")
         return [item for item in cached_data["stocks_rates"] if item["stock"] in user_stocks]
 
     # Иначе загружаем из API
     api_key = os.getenv("STOCK_API")
     if not api_key or not user_stocks:
-        get_currency_rates_logger.error("Нет API ключа для акций или нет настроек пользователя")
+        logger.error("Нет API ключа для акций или нет настроек пользователя")
         return []
 
     # Загружаем старые данные за сегодня (если есть)
@@ -203,7 +207,7 @@ def get_stocks_info() -> list:
             price = round(float(data["close"]), 2)
             new_stocks[stock] = {"stock": stock, "price": price, "currency": "USD"}
         except (requests.RequestException, KeyError, ValueError, TypeError) as e:
-            get_currency_rates_logger.error(f"Ошибка при загрузке {stock}: {e}")
+            logger.error(f"Ошибка при загрузке {stock}: {e}")
             continue
 
     # Объединяем старые и новые: новые перезаписывают старые по тикеру
@@ -224,18 +228,18 @@ def get_stocks_info() -> list:
     with open(cache_path, "w", encoding="utf-8") as file:
         json.dump(actual_rates, file, ensure_ascii=False, indent=4)
 
-    get_currency_rates_logger.info("Кэш обновлён (добавлены новые акции, старые сохранены)")
+    logger.info("Кэш обновлён (добавлены новые акции, старые сохранены)")
     # Возвращаем только запрошенные пользователем акции (с новыми ценами)
     return [new_stocks[stock] for stock in user_stocks if stock in new_stocks]
 
 
-def page_main_json(date: datetime) -> None:
+def page_main_json(date: datetime, transactions: pd.DataFrame) -> None:
     """Возвращает данные по картам, валютам, акциям и топ транзакций клиента для главной страницы"""
 
     json_format = {
-        "greetings": hello(),
-        "cards": list(get_cards_info(date)),
-        "top_transactions": list(get_top_transactions(date)),
+        "greetings": greetings(),
+        "cards": list(get_cards_info(date, transactions)),
+        "top_transactions": list(get_top_transactions(date, transactions)),
         "currency_rates": list(get_currency_rates()),
         "stock_prices": list(get_stocks_info()),
     }
@@ -245,146 +249,119 @@ def page_main_json(date: datetime) -> None:
 
 
 # Набор функций для ивент страницы
-def get_expenses_by_category(start_date: datetime, end_date: datetime) -> list:
-    """Возвращает расходы по категориям"""
+def get_expenses_by_category(date: datetime, transactions: pd.DataFrame, range_type: str) -> list:
+    first_day, last_day = get_date_range(date, range_type)
 
-    unique_categories = set()
+    operation_dates = pd.to_datetime(transactions["Дата операции"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
-    for transaction in transactions:
-        if transaction.get("Категория"):
-            unique_categories.add(transaction["Категория"])
+    period_mask = operation_dates.between(first_day, last_day)
 
-    expenses = []
+    spending_mask = (
+        period_mask
+        & transactions["Сумма операции"].lt(0)
+        & transactions["Статус"].ne("FAILED")
+        & ~transactions["Описание"].str.contains("инвесткопилк", na=False, case=False)
+        & ~transactions["Описание"].str.contains("брокерск", na=False, case=False)
+    )
 
-    for category in unique_categories:
+    categories_spend = (
+        transactions.loc[spending_mask].groupby("Категория")["Сумма операции"].sum().abs().sort_values(ascending=False)
+    )
 
-        spend_counter = 0
+    top_categories = categories_spend.head(7)
+    other_spend = categories_spend.iloc[7:].sum()
 
-        for transaction in transactions:
+    result = [{"category": category, "amount": round(spend)} for category, spend in top_categories.items()]
 
-            if (
-                transaction.get("Категория") == category
-                and transaction.get("Сумма операции") < 0
-                and start_date <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= end_date
-                and "Инвесткопилк" not in transaction.get("Описание")
-                and transaction.get("Статус") != "FAILED"
-            ):
-                spend_counter += transaction.get("Сумма операции")
-
-        expenses.append(
+    if other_spend > 0:
+        result.append(
             {
-                "category": category,
-                "total_spend": round(abs(spend_counter)),
+                "category": "Остальное",
+                "amount": round(other_spend),
             }
         )
 
-    sorted_data = sorted(expenses, key=lambda x: x["total_spend"], reverse=True)
-    result = [{"category": x["category"], "total_spend": x["total_spend"]} for x in sorted_data[:7]]
-    result.append({"category": "Остальное", "total_spend": sum(x["total_spend"] for x in sorted_data[7:])})
+    return result
+
+
+def transfers_and_cash(date: datetime, transactions: pd.DataFrame, range_type: str) -> list:
+
+    first_day, last_day = get_date_range(date, range_type)
+
+    operation_dates = pd.to_datetime(transactions["Дата операции"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+
+    period_mask = operation_dates.between(first_day, last_day)
+
+    mask = (
+        period_mask
+        & transactions["Категория"].isin(["Переводы", "Наличные"])
+        & transactions["Сумма операции"].lt(0)
+        & transactions["Статус"].ne("FAILED")
+        & ~transactions["Описание"].str.contains("инвесткопилк", na=False, case=False)
+        & ~transactions["Описание"].str.contains("брокерск", na=False, case=False)
+    )
+
+    categories_spend = (
+        transactions.loc[mask]
+        .groupby("Категория")["Сумма операции"]
+        .sum()
+        .abs()
+        .reindex(["Переводы", "Наличные"], fill_value=0)
+    )
+
+    result = [{"category": category, "amount": round(spend)} for category, spend in categories_spend.items()]
 
     return result
 
 
-def transfers_and_cash(start_date: datetime, end_date: datetime) -> list:
-    """Возвращает наличные транзакции и переводы за определенный срок"""
+def get_income_by_category(date: datetime, transactions: pd.DataFrame, range_type: str) -> list:
 
-    filtered_transactions = [
-        transaction
-        for transaction in transactions
-        if start_date <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= end_date
-    ]
+    first_day, last_day = get_date_range(date, range_type)
 
-    transfers = [
-        transaction
-        for transaction in filtered_transactions
-        if transaction.get("Категория") == "Переводы"
-        and transaction.get("Сумма операции") < 0
-        and "Инвесткопилк" not in transaction.get("Описание")
-    ]
+    operation_dates = pd.to_datetime(transactions["Дата операции"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
-    cash = [
-        transaction
-        for transaction in filtered_transactions
-        if transaction.get("Категория") == "Наличные" and transaction.get("Сумма операции") < 0
-    ]
+    period_mask = operation_dates.between(first_day, last_day)
 
-    result = [
-        {
-            "category": "Переводы",
-            "total_spend": abs(round(sum(transaction["Сумма операции"] for transaction in transfers))),
-        },
-        {
-            "category": "Наличные",
-            "total_spend": abs(round(sum(transaction["Сумма операции"] for transaction in cash))),
-        },
-    ]
+    mask = (
+        period_mask
+        & transactions["Сумма операции"].gt(0)
+        & ~transactions["Описание"].str.contains("инвесткопилк", na=False, case=False)
+        & ~transactions["Описание"].str.contains("брокерск", na=False, case=False)
+        & transactions["Категория"].ne("Маркетплейсы")
+    )
+
+    category_income = (
+        transactions.loc[mask].groupby("Категория")["Сумма операции"].sum().abs().sort_values(ascending=False)
+    )
+
+    result = [{"category": category, "amount": round(spend)} for category, spend in category_income.items()]
 
     return result
 
 
-def get_income_by_category(start_date: datetime, end_date: datetime) -> list:
-    """Возвращает доходы по категориям"""
-
-    unique_categories = set()
-
-    for transaction in transactions:
-        if transaction.get("Категория"):
-            unique_categories.add(transaction["Категория"])
-
-    income = []
-
-    for category in unique_categories:
-
-        income_counter = 0
-
-        for transaction in transactions:
-
-            if (
-                transaction.get("Категория") == category
-                and transaction.get("Сумма операции") > 0
-                and start_date <= datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S") <= end_date
-                and transaction.get("Описание") != "Вывод с Инвесткопилки"
-                and transaction.get("Описание") != "Вывод с брокерского счета"
-            ):
-                income_counter += transaction.get("Сумма операции")
-
-        income.append(
-            {
-                "category": category,
-                "total_income": round(abs(income_counter)),
-            }
-        )
-
-    sorted_data = sorted(income, key=lambda x: x["total_income"], reverse=True)
-    result = [
-        {"category": x["category"], "total_income": x["total_income"]} for x in sorted_data if x["total_income"] > 0
-    ]
-
-    return result
-
-
-def page_events_json(date: str, range_type: str = "M") -> None:
+def page_events_json(date: datetime, transactions: pd.DataFrame, range_type: str = "M") -> None:
     """Возвращает данные по расходам по категориям для страницы событий"""
 
-    start_date, end_date = get_date_range(date, range_type)
-
     total_amount_expenses = abs(
-        round(sum(transaction["total_spend"] for transaction in get_expenses_by_category(start_date, end_date)))
+        round(sum(transaction["amount"] for transaction in get_expenses_by_category(date, transactions, range_type)))
     )
 
     total_amount_income = abs(
-        round(sum(transaction["total_income"] for transaction in get_income_by_category(start_date, end_date)))
+        round(sum(transaction["amount"] for transaction in get_income_by_category(date, transactions, range_type)))
     )
 
     json_format = {
         "expenses": {
             "total_amount": total_amount_expenses,
-            "main": get_expenses_by_category(start_date, end_date),
-            "transfers_and_cash": transfers_and_cash(start_date, end_date),
+            "main": get_expenses_by_category(date, transactions, range_type),
+            "transfers_and_cash": transfers_and_cash(date, transactions, range_type),
         },
-        "income": {"total_amount": total_amount_income, "main": get_income_by_category(start_date, end_date)},
-        "currency_rates": list(get_currency_rates()),
-        "stock_prices": list(get_stocks_info()),
+        "income": {
+            "total_amount": total_amount_income,
+            "main": get_income_by_category(date, transactions, range_type),
+        },
+        "currency_rates": get_currency_rates(),
+        "stock_prices": get_stocks_info(),
     }
 
     with open(f"{find_project_root()}/data/events_page.json", "w", encoding="utf-8") as json_file:

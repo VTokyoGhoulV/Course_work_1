@@ -42,27 +42,65 @@ def find_project_root(marker_files: str | tuple = ("pyproject.toml", ".git", "re
     raise RuntimeError("Не удалось найти корень проекта. Убедитесь, что один из маркерных файлов присутствует.")
 
 
-def get_date_range(date_str: str, range_type: str = "M") -> tuple[datetime, datetime]:
-    end_date = datetime.strptime(date_str, "%d.%m.%Y")
+def get_date_range(
+    date: datetime,
+    range_type: str = "M",
+) -> tuple[datetime, datetime]:
+    """Возвращает начало и конец выбранного периода."""
+
+    end_date = date
 
     if range_type == "M":
-        start_date = end_date.replace(day=1)
+        start_date = end_date.replace(
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
     elif range_type == "W":
-        start_date = end_date - timedelta(days=end_date.weekday())
+        start_date = (end_date - timedelta(days=end_date.weekday())).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
     elif range_type == "Y":
-        start_date = end_date.replace(month=1, day=1)
+        start_date = end_date.replace(
+            month=1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
     elif range_type == "ALL":
-        start_date = datetime(1900, 1, 1)  # пример
+        start_date = datetime(1900, 1, 1)
     else:
         raise ValueError("Неверный тип диапазона")
 
-    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    end_date = end_date.replace(
+        hour=23,
+        minute=59,
+        second=59,
+        microsecond=999999,
+    )
 
     return start_date, end_date
 
 
-transactions = xlsx_to_python(f"{find_project_root()}/data/operations.xlsx")
-df = pd.read_excel(f"{find_project_root()}/data/operations.xlsx")
+def data_with_normalized_spacebars():
+
+    transactions = pd.read_excel(f"{find_project_root()}/data/MyOperations.xlsx")
+
+    text_columns = transactions.select_dtypes(include=["object", "string"]).columns
+
+    transactions[text_columns] = transactions[text_columns].apply(
+        lambda column: (column.str.replace("\u00a0", " ", regex=False).str.strip())
+    )
+
+    return transactions
+
 
 with open(f"{find_project_root()}/data/user_settings.json", "r", encoding="utf-8") as file:
     user_settings = json.load(file)
