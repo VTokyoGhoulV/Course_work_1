@@ -218,17 +218,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-/trying_smth.py
-/test.json
-/data/events_page.json
-/data/main_page.json
-/data/My_operations.xlsx
-/data/cashback_categories.json
-/data/investment_bank.json
-/data/reports/report_spending_by_category_20260606.json
-/data/reports/report_spending_by_weekday_20260606.json
-/data/reports/report_spending_by_workday_20260606.json
-/data/cache/stocks_rates.json
-/data/cache/currency_rates.json
-/data/simple_finder.json
 
+# Keep generated-data directories in Git, but ignore their contents.
+/data/reports/*
+!/data/reports/.gitkeep
+/data/logs/*
+!/data/logs/.gitkeep
+/data/services/*
+!/data/services/.gitkeep
+/data/views/*
+!/data/views/.gitkeep
+/data/cache/*
+!/data/cache/.gitkeep
+/data/MyOperations.xlsx
+/testilka.py
