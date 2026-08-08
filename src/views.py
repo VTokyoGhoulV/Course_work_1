@@ -244,7 +244,7 @@ def page_main_json(date: datetime, transactions: pd.DataFrame) -> None:
         "stock_prices": list(get_stocks_info()),
     }
 
-    with open(f"{find_project_root()}/data/main_page.json", "w", encoding="utf-8") as json_file:
+    with open(f"{find_project_root()}/data/views/main_page.json", "w", encoding="utf-8") as json_file:
         json.dump(json_format, json_file, ensure_ascii=False, indent=2)
 
 
@@ -364,5 +364,5 @@ def page_events_json(date: datetime, transactions: pd.DataFrame, range_type: str
         "stock_prices": get_stocks_info(),
     }
 
-    with open(f"{find_project_root()}/data/events_page.json", "w", encoding="utf-8") as json_file:
+    with open(f"{find_project_root()}/data/views/events_page.json", "w", encoding="utf-8") as json_file:
         json.dump(json_format, json_file, ensure_ascii=False, indent=2)

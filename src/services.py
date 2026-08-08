@@ -37,7 +37,7 @@ def get_the_best_cashback_categories(transactions: pd.DataFrame, date: Optional[
 
     result = {category: cashback for category, cashback in categories_spend.items()}
 
-    with open(f"{find_project_root()}/data/cashback_categories.json", "w", encoding="utf-8") as json_file:
+    with open(f"{find_project_root()}/data/services/cashback_categories.json", "w", encoding="utf-8") as json_file:
         json.dump(result, json_file, ensure_ascii=False, indent=2)
 
 
@@ -58,7 +58,7 @@ def investment_bank(date: datetime, transactions: pd.DataFrame, limit: int) -> N
 
     result = {"possible_investment": round(investment_counter)}
 
-    with open(f"{find_project_root()}/data/investment_bank.json", "w", encoding="utf-8") as file:
+    with open(f"{find_project_root()}/data/services/investment_bank.json", "w", encoding="utf-8") as file:
         json.dump(result, file, ensure_ascii=False, indent=2)
 
 
@@ -72,7 +72,7 @@ def simple_finder(transactions: pd.DataFrame, search_string: str) -> None:
 
     result = filtered.to_dict("records")
 
-    with open(f"{find_project_root()}/data/simple_finder.json", "w", encoding="utf-8") as json_file:
+    with open(f"{find_project_root()}/data/services/simple_finder.json", "w", encoding="utf-8") as json_file:
         json.dump(result, json_file, ensure_ascii=False, indent=2, default=str)
 
 
@@ -88,7 +88,7 @@ def mobile_phone_finder(transactions: pd.DataFrame) -> None:
 
     result = filtered.to_dict("records")
 
-    with open(f"{find_project_root()}/data/mobile_phone_finder.json", "w", encoding="utf-8") as json_file:
+    with open(f"{find_project_root()}/data/services/mobile_phone_finder.json", "w", encoding="utf-8") as json_file:
         json.dump(result, json_file, ensure_ascii=False, indent=2, default=str)
 
 
@@ -105,7 +105,7 @@ def individual_transaction_finder(transactions: pd.DataFrame) -> None:
     result = filtered.to_dict("records")
 
     with open(
-        f"{find_project_root()}/data/individual_transaction_finder.json",
+        f"{find_project_root()}/data/services/individual_transaction_finder.json",
         "w",
         encoding="utf-8",
     ) as json_file:
